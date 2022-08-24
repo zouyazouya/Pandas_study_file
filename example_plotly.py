@@ -4,7 +4,7 @@ streamlit run d:\lyj\dataanalysis\example_plotly.py
 https://plotly.com/python/plotly-express/
 '''
 import os
-import plotly.graph_objects as go
+# import plotly.graph_objects as go
 import plotly.express as px
 import pandas as pd
 import numpy as np
