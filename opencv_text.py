@@ -7,17 +7,32 @@ pip install -i https://pypi.tuna.tsinghua.edu.cn/simple opencv-python 清华镜�
 
 import streamlit as st
 import cv2,os
-from PIL import Image
+from imutils import contours
+import argparse
+import imutils
+import myutils
 
-def open_img(path='.'):
+## 设置参数
+# ap = argparse.ArgumentParser()
+# ap.add_argument("-i","--image",required=True,
+#                 help="path to input image")
+# ap.add_argument("-t","--template",required=True,
+#                 help="path to template OCR-A image")
+# args = vars(ap.parse_args())
+
+## 指定信用卡类型
+FIRST_NUMBER ={
+    "3":"American Express",
+    "4":"Visa",
+    "5":"MasterCard",
+    "6":"Discover Card"
+}
+
+def open_img(key,path='./pic'):
     files = os.listdir(path)
-    file = st.sidebar.selectbox("选择图片",files)
+    file = st.sidebar.selectbox("",files,key=key)
     file_path = os.path.join(path,file)
-    img_color = st.sidebar.selectbox("选择颜色",["彩色","灰度"])
-    if img_color == "彩色":
-        img = cv2.imread(file_path,cv2.IMREAD_COLOR)
-    else:
-        img = cv2.imread(file_path, cv2.IMREAD_GRAYSCALE)
+    img = cv2.imread(file_path)
     return img
 
 def open_video():
@@ -61,6 +76,57 @@ def border_fill(img):
     BORDER_CONSTANT: 常量法，常数值填充。
     ''')
 
+def sort_contours(cnts,method="left-to-right"):
+    reverse = False
+    i = 0
+
+    if method == "right-to-left" or method == "bottom-to-top":
+        reverse = True
+
+    if method == "top-to-bottom" or method == "bottom-to-top":
+        i = 1
+    # 用一个最小的矩形，把找到的形状包起来x,y,h,w
+    boundingBoxes = [cv2.boundingRect(c) for c in cnts]
+    (cnts,boundingBoxes) = zip(*sorted(zip(cnts,boundingBoxes),
+                                       key=lambda b: b[1][i],reverse=reverse))
+    return cnts,boundingBoxes
+
+def recog_nums(card,num):
+    ref = cv2.cvtColor(num,cv2.COLOR_BGR2GRAY)
+    # 二值转换
+    ref = cv2.threshold(ref,10,255,cv2.THRESH_BINARY_INV)[1]
+    # 计算轮廓 （只检测外轮廓）
+    refCnts,hierarchy=cv2.findContours(ref.copy(),cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+    cv2.drawContours(num,refCnts,-1,(0,0,255),2)
+    # 排序，从左到右，从上到下
+    refCnts = sort_contours(refCnts,method="left-to-right")[0]
+    digits = {}
+    # 遍历每一个轮廓
+    for (i,c) in enumerate(refCnts):
+        #计算外界矩形并且resize成合适大小
+        (x,y,w,h) = cv2.boundingRect(c)
+        roi = ref[y:y+h, x:x+w]
+        roi = cv2.resize(roi,(57,88))
+        #每一个数字对应一个模板
+        digits[i] = roi
+
+    # 初始化卷积核
+    rectKernel = cv2.getStructuringElement(cv2.MORPH_RECT,(9,3))
+    sqKernel = cv2.getStructuringElement(cv2.MORPH_RECT,(5,5))
+
+    gray = cv2.cvtColor(card,cv2.COLOR_BGR2GRAY)
+    #礼帽操作，突出更明亮的区域
+    tophat = cv2.morphologyEx(gray,cv2.MORPH_TOPHAT,rectKernel)
+
+
+
+    col1,col2,col3 = st.columns(3)
+    col1.image(ref)
+    col2.image(cv2.cvtColor(num,cv2.COLOR_BGR2RGB),"识别字数：{}".format(len(refCnts)))
+    col3.image(tophat)
+
+
 def main():
     # 标题
     html_temp='''
@@ -72,42 +138,16 @@ def main():
     st.markdown(html_temp,unsafe_allow_html=True)
 
 ## 打开图片
-    img = open_img()
-    img1 = cv2.cvtColor(img,cv2.COLOR_BGR2RGB)
-    col1,col2,col3 = st.columns(3)
-    with col1:
-        st.image(img1)
+    st.sidebar.caption("选择卡片图")
+    card_img = open_img(key=1)
+    st.sidebar.caption("选择模板")
+    temp_img = open_img(key=2)
+    col1,col2 = st.columns(2)
+    col1.image(cv2.cvtColor(card_img,cv2.COLOR_BGR2RGB))
+    col2.image(cv2.cvtColor(temp_img, cv2.COLOR_BGR2RGB))
 
-## 打开视屏
-    if st.button("视频演示开始"):
-        open_video()
-
-## 截取部分图像数据
-    img2 = img1[600:900,300:600]
-    with col2:
-        st.image(img2)
-
-## 颜色通道提取
-    b,g,r = cv2.split(img)
-    color_ch = st.sidebar.selectbox("选择颜色通道",["B","G","R"])
-    with col3:
-        if color_ch=="R":
-            img[:,:,2]=0
-            img[:,:,1]=0
-            st.image(img)
-        elif color_ch == "G":
-            img[:, :, 0] = 0
-            img[:, :, 2] = 0
-            st.image(img)
-        else:
-            img[:, :, 0] = 0
-            img[:, :, 1] = 0
-            st.image(img)
-
-## 边界填充
-    border_fill(img1)
-
-## 数值计算
+    if st.checkbox("开始识别"):
+        recog_nums(card_img,temp_img)
 
 
 if __name__ == '__main__':
